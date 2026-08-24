@@ -1,0 +1,10 @@
+cat << 'EOF' > .gitignore
+*.o
+gerenciador
+*.dat
+*.tmp
+*.bin
+senha_mestra.txt
+senhas.txt
+salt.bin
+EOF

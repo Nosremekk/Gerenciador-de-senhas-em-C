@@ -1,12 +1,41 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <sodium.h>
 #include "operacoes.h"
 #include "arquivo.h"
 #include "util.h"
 #include "auditoria.h"
+
+int ler_opcao_menu(int *opcao_out)
+{
+    char buffer[32];
+    printf("Escolha uma opcao: ");
+    fflush(stdout);
+
+    int status = ler_string_timeout(buffer, sizeof(buffer), TIMEOUT_INATIVIDADE_SEGUNDOS);
+    if (status == -1)
+    {
+        return -1;
+    }
+    if (status == 0 || buffer[0] == '\0')
+    {
+        return 0;
+    }
+
+    char *fim;
+    long valor = strtol(buffer, &fim, 10);
+    if (*fim != '\0')
+    {
+        return 0;
+    }
+
+    *opcao_out = (int)valor;
+    return 1;
+}
 
 static void ler_string(const char *mensagem, char *destino, size_t tamanho)
 {
@@ -135,7 +164,7 @@ static void mostrar_registro(Registro *registro)
     {
         if (copiar_para_clipboard(registro->senha))
         {
-            printf("Senha copiada para a area de transferencia!\n");
+            printf("Senha copiada! A area de transferencia sera limpa automaticamente em 30 segundos.\n");
         }
         else
         {
@@ -274,11 +303,11 @@ static void pesquisar_por_servico(BancoDeDados *banco)
 {
     char servico_busca[50];
     int encontrados = 0;
-    ler_string("Digite o nome do servico: ", servico_busca, sizeof(servico_busca));
+    ler_string("Digite o termo de busca para o servico: ", servico_busca, sizeof(servico_busca));
 
     for (size_t i = 0; i < banco->tamanho; i++)
     {
-        if (banco->itens[i].ativo == 1 && strcmp(banco->itens[i].servico, servico_busca) == 0)
+        if (banco->itens[i].ativo == 1 && strcasestr(banco->itens[i].servico, servico_busca) != NULL)
         {
             mostrar_registro(&banco->itens[i]);
             encontrados++;
@@ -286,7 +315,7 @@ static void pesquisar_por_servico(BancoDeDados *banco)
     }
     if (encontrados == 0)
     {
-        printf("Nenhum registro encontrado para este servico.\n");
+        printf("Nenhum registro encontrado correspondente ao termo informado.\n");
     }
 }
 
@@ -294,11 +323,11 @@ static void pesquisar_por_usuario(BancoDeDados *banco)
 {
     char user_busca[50];
     int encontrados = 0;
-    ler_string("Digite o nome do usuario: ", user_busca, sizeof(user_busca));
+    ler_string("Digite o termo de busca para o usuario: ", user_busca, sizeof(user_busca));
 
     for (size_t i = 0; i < banco->tamanho; i++)
     {
-        if (banco->itens[i].ativo == 1 && strcmp(banco->itens[i].user, user_busca) == 0)
+        if (banco->itens[i].ativo == 1 && strcasestr(banco->itens[i].user, user_busca) != NULL)
         {
             mostrar_registro(&banco->itens[i]);
             encontrados++;
@@ -306,7 +335,7 @@ static void pesquisar_por_usuario(BancoDeDados *banco)
     }
     if (encontrados == 0)
     {
-        printf("Nenhum registro encontrado para este usuario.\n");
+        printf("Nenhum registro encontrado correspondente ao termo informado.\n");
     }
 }
 
@@ -336,6 +365,76 @@ void pesquisar_registro(BancoDeDados *banco)
             default:
                 printf("Opcao inexistente. Tente novamente.\n");
                 break;
+        }
+    }
+}
+
+void exportar_dados_menu(const BancoDeDados *banco)
+{
+    printf("\n=== EXPORTACAO E BACKUP ===\n");
+    printf("1 - Exportar Backup Criptografado (Recomendado para seguranca)\n");
+    printf("2 - Exportar em Texto Puro / CSV (Exige senha mestra)\n");
+    printf("3 - Cancelar\n");
+
+    int op = ler_inteiro("Opcao: ");
+
+    if (op == 1)
+    {
+        char destino[256];
+        ler_string("Digite o caminho da pasta de destino (ex: . ou /home/usuario/backup): ", destino, sizeof(destino));
+
+        if (exportar_backup_criptografado(destino))
+        {
+            printf("Backup dos arquivos criptografados gerado com sucesso em '%s'!\n", destino);
+        }
+        else
+        {
+            printf("Erro ao gerar backup. Verifique se o caminho existe e tem permissao de escrita.\n");
+        }
+    }
+    else if (op == 2)
+    {
+        char confirmacao_senha[128];
+        char hash_armazenada[crypto_pwhash_STRBYTES];
+        char caminho_hash[1024];
+
+        if (!obter_caminho_dados(caminho_hash, sizeof(caminho_hash), "senha_mestra.txt"))
+        {
+            printf("Erro ao validar credencial.\n");
+            return;
+        }
+
+        FILE *f = fopen(caminho_hash, "r");
+        if (f == NULL || fgets(hash_armazenada, sizeof(hash_armazenada), f) == NULL)
+        {
+            if (f) fclose(f);
+            printf("Erro ao carregar credencial de validacao.\n");
+            return;
+        }
+        hash_armazenada[strcspn(hash_armazenada, "\r\n")] = '\0';
+        fclose(f);
+
+        printf("\n[AVISO DE SEGURANCA] O arquivo gerado contera todas as senhas legiveis em texto puro.\n");
+        ler_senha_oculta("Confirme sua senha mestra para continuar: ", confirmacao_senha, sizeof(confirmacao_senha));
+
+        if (crypto_pwhash_str_verify(hash_armazenada, confirmacao_senha, strlen(confirmacao_senha)) != 0)
+        {
+            sodium_memzero(confirmacao_senha, sizeof(confirmacao_senha));
+            printf("Senha mestra incorreta. Exportacao cancelada.\n");
+            return;
+        }
+        sodium_memzero(confirmacao_senha, sizeof(confirmacao_senha));
+
+        char nome_arquivo[256];
+        ler_string("Nome do arquivo de destino (ex: senhas.csv): ", nome_arquivo, sizeof(nome_arquivo));
+
+        if (exportar_banco_csv(banco, nome_arquivo))
+        {
+            printf("Banco exportado com sucesso para '%s'!\n", nome_arquivo);
+        }
+        else
+        {
+            printf("Erro ao salvar arquivo exportado.\n");
         }
     }
 }

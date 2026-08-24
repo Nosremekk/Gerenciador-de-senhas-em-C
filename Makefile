@@ -1,9 +1,13 @@
 CC = gcc
 CFLAGS = -Wall -Wextra $(shell pkg-config --cflags libsodium)
 LIBS = $(shell pkg-config --libs libsodium)
+PREFIX = $(HOME)/.local/bin
+TARGET = gerenciador_senhas
 
-gerenciador: main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o
-	$(CC) main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o -o gerenciador $(LIBS)
+all: $(TARGET)
+
+$(TARGET): main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o
+	$(CC) main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o -o $(TARGET) $(LIBS)
 
 main.o: main.c registro.h arquivo.h autenticacao.h operacoes.h auditoria.h
 	$(CC) $(CFLAGS) -c main.c
@@ -14,7 +18,7 @@ registro.o: registro.c registro.h
 arquivo.o: arquivo.c arquivo.h registro.h autenticacao.h
 	$(CC) $(CFLAGS) -c arquivo.c
 
-autenticacao.o: autenticacao.c autenticacao.h util.h
+autenticacao.o: autenticacao.c autenticacao.h util.h arquivo.h
 	$(CC) $(CFLAGS) -c autenticacao.c
 
 operacoes.o: operacoes.c operacoes.h registro.h arquivo.h util.h auditoria.h
@@ -26,5 +30,12 @@ util.o: util.c util.h
 auditoria.o: auditoria.c auditoria.h registro.h
 	$(CC) $(CFLAGS) -c auditoria.c
 
+install: $(TARGET)
+	mkdir -p $(PREFIX)
+	install -m 755 $(TARGET) $(PREFIX)/$(TARGET)
+
+uninstall:
+	rm -f $(PREFIX)/$(TARGET)
+
 clean:
-	rm -f *.o gerenciador
+	rm -f *.o $(TARGET)
