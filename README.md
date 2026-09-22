@@ -15,7 +15,9 @@ O projeto armazena credenciais localmente e utiliza uma senha mestra para autent
 - Derivação de uma chave de criptografia de 256 bits a partir da senha mestra.
 - Ocultação dos caracteres digitados no terminal utilizando `termios`.
 - Limpeza de buffers sensíveis utilizando `sodium_memzero`.
-
+- Autenticação de dois fatores por hardware (2FA/HSM) via porta serial (`/dev/ttyACM0`) com Raspberry Pi Pico W.
+- Composição da chave final de encriptação através de operação XOR entre a chave derivada por Argon2id e a resposta computada pelo token físico.
+  
 ### Gerenciamento de credenciais
 
 - Adicionar credenciais.
@@ -42,35 +44,15 @@ O banco de dados utiliza uma estrutura dinâmica armazenada na heap e aumenta su
 
 ## Criptografia
 
-As senhas armazenadas em disco são protegidas utilizando a biblioteca libsodium.
+A chave utilizada para a criptografia combina software e hardware:
+1. Uma chave intermediária é derivada da senha mestra com **Argon2id** (`crypto_pwhash`).
+2. O programa envia o salt via serial para o **Raspberry Pi Pico W**, que processa um HMAC e devolve uma assinatura de 32 bytes.
+3. A chave de criptografia final de 256 bits é gerada pelo **XOR** entre a chave derivada em software e o segredo retornado pelo hardware.
 
-O projeto utiliza:
+### Persistência Atómica e Permissões
 
-```text
-crypto_secretbox_easy
-```
-
-com o algoritmo:
-
-```text
-XSalsa20-Poly1305
-```
-
-A operação fornece confidencialidade e autenticação dos dados criptografados.
-
-A chave utilizada para a criptografia é derivada da senha mestra utilizando:
-
-```text
-Argon2id
-```
-
-através de:
-
-```text
-crypto_pwhash
-```
-
-O salt utilizado na derivação da chave é armazenado separadamente.
+- Os dados são isolados no diretório `~/.gerenciador_senhas/` com permissão estrita `0700` e arquivos restritos a `0600` (POSIX).
+- Gravação segura utilizando escrita em ficheiro temporário (`.tmp`), sincronização com `fflush()` e substituição atómica através de `rename()`, prevenindo corrupção em caso de interrupção repentina de energia.
 
 ## Gerador de Senhas
 
@@ -193,6 +175,8 @@ Como essa operação gera um arquivo sem a mesma proteção criptográfica do ba
 ├── auditoria.h
 ├── util.c
 ├── util.h
+├── hardware.c
+├── hardware.h
 ├── Makefile
 ├── README.md
 └── LICENSE
@@ -296,6 +280,15 @@ Inclui:
 - Limpeza automática do clipboard.
 - Funções auxiliares de entrada.
 
+### `hardware.c` / `hardware.h`
+
+Responsável pela comunicação com o token de segurança físico (Raspberry Pi Pico W).
+
+Principais responsabilidades:
+- Configuração de parâmetros de porta serial POSIX (`termios`, raw mode, baudrate 115200).
+- Handshake e envio do desafio de hardware via `/dev/ttyACM0`.
+- Leitura e conversão da resposta criptográfica devolvida pelo microcontrolador.
+
 ## Pré-requisitos
 
 O projeto requer:
@@ -304,6 +297,8 @@ O projeto requer:
 - Make.
 - `pkg-config`.
 - libsodium.
+- Raspberry Pi Pico / Pico W com o firmware do token gravado.
+- Utilizador pertencente ao grupo dialout (para acesso à porta serial sem privilégios de
 
 Para suporte ao clipboard:
 
@@ -404,6 +399,11 @@ make uninstall
 - `fork`
 - `setsid`
 - Clipboard em Wayland e X11
+- Raspberry Pi Pico W (RP2040)
+- MicroPython / Serial CDC
+- Comunicação Serial POSIX (termios)
+- HMAC-SHA256
+- Escrita Atómica (rename)
 
 ## Objetivos do Projeto
 
