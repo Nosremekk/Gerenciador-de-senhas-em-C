@@ -7,6 +7,7 @@
 #include "autenticacao.h"
 #include "arquivo.h"
 #include "util.h"
+#include "hardware.h"
 
 #define MAX_TENTATIVAS 3
 
@@ -63,7 +64,10 @@ static int criar_e_salvar_salt(unsigned char salt[crypto_pwhash_SALTBYTES])
 
 static int derivar_chave(const char *senha, const unsigned char salt[crypto_pwhash_SALTBYTES], unsigned char out_chave[crypto_secretbox_KEYBYTES])
 {
-    if (crypto_pwhash(out_chave,
+    unsigned char chave_software[crypto_secretbox_KEYBYTES];
+    unsigned char resposta_hardware[HARDWARE_RESPOSTA_BYTES];
+
+    if (crypto_pwhash(chave_software,
                       crypto_secretbox_KEYBYTES,
                       senha,
                       strlen(senha),
@@ -74,6 +78,22 @@ static int derivar_chave(const char *senha, const unsigned char salt[crypto_pwha
     {
         return 0;
     }
+
+    printf("A comunicar com a chave de hardware (Raspberry Pi Pico W)...\n");
+    if (!hardware_obter_chave(salt, crypto_pwhash_SALTBYTES, resposta_hardware))
+    {
+        sodium_memzero(chave_software, sizeof(chave_software));
+        printf("Falha na comunicacao com a chave fisica em /dev/ttyACM0.\n");
+        return 0;
+    }
+
+    for (size_t i = 0; i < crypto_secretbox_KEYBYTES; i++)
+    {
+        out_chave[i] = chave_software[i] ^ resposta_hardware[i];
+    }
+
+    sodium_memzero(chave_software, sizeof(chave_software));
+    sodium_memzero(resposta_hardware, sizeof(resposta_hardware));
 
     return 1;
 }
@@ -125,7 +145,7 @@ int autenticar(void)
                     return 0;
                 }
                 sodium_memzero(temp_senha, sizeof(temp_senha));
-                printf("Senha mestra correta! Acesso liberado.\n");
+                printf("Senha mestra correta e token de hardware validado! Acesso liberado.\n");
                 return 1;
             }
 
@@ -194,7 +214,7 @@ int autenticar(void)
     fprintf(arquivo, "%s\n", hash_armazenada);
     fclose(arquivo);
 
-    printf("Senha mestra configurada com sucesso! Acesso liberado.\n");
+    printf("Senha mestra e token de hardware configurados com sucesso! Acesso liberado.\n");
     return 1;
 }
 

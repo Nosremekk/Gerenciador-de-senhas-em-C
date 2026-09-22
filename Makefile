@@ -6,8 +6,8 @@ TARGET = gerenciador_senhas
 
 all: $(TARGET)
 
-$(TARGET): main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o
-	$(CC) main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o -o $(TARGET) $(LIBS)
+$(TARGET): main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o hardware.o
+	$(CC) main.o registro.o arquivo.o autenticacao.o operacoes.o util.o auditoria.o hardware.o -o $(TARGET) $(LIBS)
 
 main.o: main.c registro.h arquivo.h autenticacao.h operacoes.h auditoria.h
 	$(CC) $(CFLAGS) -c main.c
@@ -18,8 +18,11 @@ registro.o: registro.c registro.h
 arquivo.o: arquivo.c arquivo.h registro.h autenticacao.h
 	$(CC) $(CFLAGS) -c arquivo.c
 
-autenticacao.o: autenticacao.c autenticacao.h util.h arquivo.h
+autenticacao.o: autenticacao.c autenticacao.h util.h arquivo.h hardware.h
 	$(CC) $(CFLAGS) -c autenticacao.c
+
+hardware.o: hardware.c hardware.h
+	$(CC) $(CFLAGS) -c hardware.c
 
 operacoes.o: operacoes.c operacoes.h registro.h arquivo.h util.h auditoria.h
 	$(CC) $(CFLAGS) -c operacoes.c
